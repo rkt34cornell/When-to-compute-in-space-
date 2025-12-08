@@ -1,0 +1,293 @@
+\documentclass[conf]{new-aiaa}
+%\documentclass[journal]{new-aiaa} for journal papers
+\usepackage[utf8]{inputenc}
+
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage[version=4]{mhchem}
+\usepackage{siunitx}
+\usepackage{longtable,tabularx}
+\setlength\LTleft{0pt} 
+\DeclareMathOperator*{\argmax}{arg\,max}
+
+\title{When to compute in space?}
+
+\author{First A. Author\footnote{Insert Job Title, Department Name, Address/Mail Stop, and AIAA Member Grade (if any) for first author.} and Second B. Author Jr.\footnote{Insert Job Title, Department Name, Address/Mail Stop, and AIAA Member Grade (if any) for second author.}}
+\affil{Business or Academic Affiliation 1, City, State, Zip Code}
+
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+These instructions give you guidelines for preparing papers for AIAA Technical Papers using \LaTeX{}. Define all symbols used in the abstract. Do not cite references in the abstract. The footnote on the first page should list the Job Title and AIAA Member Grade for each author, if known Authors do not have to be AIAA members.
+\end{abstract}
+
+\section{Nomenclature}
+
+{\renewcommand\arraystretch{1.0}
+\noindent\begin{longtable*}{@{}l @{\quad=\quad} l@{}}
+$A$  & amplitude of oscillation \\
+$a$ &    cylinder diameter \\
+$C_p$& pressure coefficient \\
+$Cx$ & force coefficient in the \textit{x} direction \\
+$Cy$ & force coefficient in the \textit{y} direction \\
+c   & chord \\
+d$t$ & time step \\
+$Fx$ & $X$ component of the resultant pressure force acting on the vehicle \\
+$Fy$ & $Y$ component of the resultant pressure force acting on the vehicle \\
+$f, g$   & generic functions \\
+$h$  & height \\
+$i$  & time index during navigation \\
+$j$  & waypoint index \\
+$K$  & trailing-edge (TE) nondimensional angular deflection rate
+\end{longtable*}}
+
+\section{Compute-Location Optimization Model}
+\label{sec:compute_opt_model}
+
+% If not already defined in the template:
+
+Modern space missions increasingly rely on heterogeneous compute resources that span onboard flight software, orbital data centers, ground station edge nodes, and terrestrial cloud infrastructure. Determining where a specific computation should execute involves balancing competing objectives including latency, reliability, power consumption, communication overhead, cost, and regulatory feasibility. To formalize this decision process, we introduce a constrained multi criteria optimization model that evaluates each compute tier using a unified utility function. The selected compute location is the one that maximizes the effective utility subject to mission constraints.
+
+\subsection{Variables and Notation}
+
+Let \( j \in \{\mathrm{FC}, \mathrm{ODC}, \mathrm{GSE}, \mathrm{TDC}\} \) denote a compute tier: onboard flight computer (FC), orbital data center (ODC), ground station edge (GSE), or terrestrial data center (TDC). Each tier is described by a vector of empirically measurable metrics. Let \( i \in I \) index the set of all criteria. Table~\ref{tab:variables} summarizes the variables used in the optimization formulation.
+
+\begin{table}[h!]
+\centering
+\caption{Metrics and variables used in the compute-location optimization model.}
+\label{tab:variables}
+\begin{tabular}{ll}
+\hline
+\textbf{Symbol} & \textbf{Description} \\ \hline
+\( M_i(j) \)                & Raw value of metric \( i \) for tier \( j \) \\
+\( w_i \)                   & Weight of metric \( i \) in the utility computation \\
+\( s_i(j) \)                & Normalized score of metric \( i \) for tier \( j \), in \([0,1]\) \\
+\( m_i^{\min}, m_i^{\max} \)& Expected operating bounds of metric \( i \) \\
+\( K_j \subseteq I \)       & Set of metrics available for tier \( j \) (some may be missing) \\
+\( W_{\text{total}} \)      & Total weight sum, \( W_{\text{total}} = \sum_{i \in I} w_i \) \\
+\( W_{\text{known}}(j) \)   & Weight sum of metrics available for tier \( j \) \\
+\( \phi(j) \)               & Information fraction for tier \( j \), \( \phi(j) = W_{\text{known}}(j)/W_{\text{total}} \) \\
+\( U_{\text{base}}(j) \)    & Base utility computed from known metrics \\
+\( U_{\text{eff}}(j) \)     & Penalized utility after missing-data adjustment \\
+\( D_{\text{req}} \)        & Task requirement: maximum allowable latency \\
+\( R_{\text{req}} \)        & Minimum acceptable success probability \\
+\( Q_{\text{req}} \)        & Minimum acceptable output quality \\
+\( C_{\text{req}} \)        & Maximum allowable marginal cost per task \\
+\( R_{\text{ok}}(j) \)      & Regulatory feasibility indicator \((0~\text{or}~1)\) \\
+\hline
+\end{tabular}
+\end{table}
+
+The metric set includes the following empirically measurable quantities:
+
+\begin{itemize}
+\item End-to-end p99 latency \( M_{\text{latency}}(j) \)
+\item Success probability \( M_{\text{success}}(j) \)
+\item Output quality \( M_{\text{quality}}(j) \)
+\item Energy per task \( M_{\text{energy}}(j) \)
+\item Peak power draw \( M_{\text{peak\_power}}(j) \)
+\item Power margin \( M_{\text{power\_margin}}(j) \)
+\item Link availability \( M_{\text{link}}(j) \)
+\item Contact duty cycle \( M_{\text{contact}}(j) \)
+\item Data reduction ratio \( M_{\text{reduction}}(j) \)
+\item Marginal cost per task \( M_{\text{cost}}(j) \)
+\item Operational overhead \( M_{\text{ops}}(j) \)
+\item Compute availability \( M_{\text{comp\_avail}}(j) \)
+\item Orbital altitude \( M_{\text{alt}}(j) \)
+\item Compute subsystem mass \( M_{\text{mass}}(j) \)
+\item Regulatory feasibility \( R_{\text{ok}}(j) \)
+\end{itemize}
+
+All metrics are scalar and can be measured experimentally or obtained from system models.
+
+\subsection{Rationale for Optimization Variables}
+\label{sec:metric_rationale}
+
+The metrics included in the optimization model capture the fundamental physical, operational, and economic factors that determine whether a computation should occur onboard, in orbit, at the ground station edge, or in terrestrial cloud infrastructure. Each variable represents a quantitatively measurable property that affects system performance or mission feasibility. The following subsections describe the rationale for each metric category and its relevance to compute-location selection.
+
+\subsubsection{Latency and Timing Metrics}
+
+\textbf{End-to-end p99 latency} \( M_{\text{latency}}(j) \)  
+captures the worst-case delay experienced during time-critical operations. Many spacecraft functions such as fault detection, autonomy, and onboard intrusion detection require deterministic responses within strict deadlines. Lower latency strongly favors onboard computation, while higher values may render remote computation infeasible.
+
+\textbf{Median latency} \( M_{\text{latency50}}(j) \)  
+characterizes typical responsiveness and is useful in tasks with soft-real-time requirements. Although less restrictive than p99 latency, it provides insight into nominal compute performance.
+
+\textbf{Latency jitter} (optional) captures the variability between typical and worst-case timing conditions. High jitter reduces predictability and may disqualify a tier from hosting tightly coupled control functions.
+
+\subsubsection{Reliability, Correctness, and Safety Metrics}
+
+\textbf{Success probability} \( M_{\text{success}}(j) \)  
+is the likelihood that a computation completes both correctly and within its deadline. This metric is essential for safety-critical tasks where probabilistic guarantees must be satisfied.
+
+\textbf{Output quality} \( M_{\text{quality}}(j) \)  
+quantifies task accuracy in a normalized range and is relevant for perception, detection, or estimation tasks. Compute tiers with degraded precision, reduced memory, or radiation susceptibility may show lower quality.
+
+\textbf{Silent data corruption probability} (optional) is relevant in radiation-abundant environments such as GEO or interplanetary space, where increased particle flux can cause undetected bit-flips, potentially compromising result integrity.
+
+\textbf{Compute availability} \( M_{\text{comp\_avail}}(j) \)  
+measures the fraction of time a compute resource is operational and not undergoing downtime, maintenance, thermal throttling, or radiation resets. Higher availability indicates more predictable and reliable computing.
+
+\subsubsection{Energy and Power Metrics}
+
+\textbf{Energy per task} \( M_{\text{energy}}(j) \)  
+is a critical constraint for power-constrained spacecraft. Onboard computing incurs a direct energetic cost, and high energy demands may reduce mission lifetime or interfere with other subsystems.
+
+\textbf{Peak power draw} \( M_{\text{peak\_power}}(j) \)  
+captures instantaneous power requirements that must be supported by the spacecraft power conditioning system. Excessive peak demand may exceed power limits even when average energy remains low.
+
+\textbf{Power margin} \( M_{\text{power\_margin}}(j) \)  
+quantifies available electrical headroom. Positive margins favor local computation, while negative margins make it infeasible.
+
+\textbf{Generation capacity} \( M_{\text{power\_gen}}(j) \)  
+describes the long-term power budget available for computational workloads and varies with orbital geometry and vehicle size.
+
+\subsubsection{Thermal Metrics}
+
+\textbf{Thermal margin} \( M_{\text{thermal}}(j) \)  
+represents the temperature headroom before exceeding hardware thermal limits. Onboard and orbital systems often operate with tight margins due to limited radiative area, making compute-intensive tasks potentially unsafe during periods of high solar load or when thermal control is constrained.
+
+\subsubsection{Communication Metrics}
+
+\textbf{Link availability} \( M_{\text{link}}(j) \)  
+measures the probability that bandwidth and link quality meet operational thresholds. Compute tiers requiring substantial uplink/downlink traffic (e.g., ground processing) depend heavily on link reliability.
+
+\textbf{Contact duty cycle} \( M_{\text{contact}}(j) \)  
+encodes the fraction of mission time during which communication is possible. Space-to-ground links may be intermittent, making remote computation infeasible for continuous or urgent tasks.
+
+\textbf{Data reduction ratio} \( M_{\text{reduction}}(j) \)  
+describes how much computation reduces data volume. Tasks with high reduction ratios benefit strongly from onboard computation because transmitting raw data is expensive or impossible under bandwidth constraints.
+
+\textbf{Throughput capacity} (optional) captures effective data rates for communication-intensive tasks.
+
+\subsubsection{Cost and Operational Metrics}
+
+\textbf{Marginal cost per task} \( M_{\text{cost}}(j) \)  
+represents direct or amortized financial cost associated with performing a computation at tier \( j \). Cloud resources tend to be inexpensive, while onboard compute has high marginal opportunity cost due to limited energy, mass, and power budgets.
+
+\textbf{Operational overhead} \( M_{\text{ops}}(j) \)  
+measures the human workload needed to maintain or supervise computing resources. Higher ops burden reduces desirability for sustained mission operations, particularly for autonomous spacecraft.
+
+\subsubsection{Platform and Design Metrics}
+
+\textbf{Orbital altitude} \( M_{\text{alt}}(j) \)  
+affects propagation delay, radiation exposure, and contact opportunities. Although not inherently good or bad, altitude is an underlying driver for other metrics and can be considered directly as a criterion.
+
+\textbf{Compute subsystem mass} \( M_{\text{mass}}(j) \)  
+reflects the mass penalty of hosting additional onboard compute hardware. Lower mass supports more efficient mission architectures and reduces launch cost.
+
+\textbf{Compute throughput capacity} \( M_{\text{throughput}}(j) \)  
+indicates the rate at which a compute tier can process tasks and determines whether it can support the mission’s computational load.
+
+\subsubsection{Regulatory Metric}
+
+\textbf{Regulatory feasibility} \( R_{\text{ok}}(j) \)  
+is a binary indicator capturing legal, ITAR-controls, privacy, or mission-specific restrictions on processing certain data at a given compute tier. This criterion enforces a hard constraint that supersedes utility considerations.
+
+\subsubsection{Summary of Metric Rationale}
+
+Collectively, these variables represent the principal physical, operational, informational, and economic factors governing the feasibility and desirability of performing compute in space or on the ground. Each metric contributes to a scalar utility that summarizes the trade space while preserving interpretability and mission relevance. The optimization function integrates these factors into a unified decision-making framework capable of handling incomplete data and heterogeneous compute environments.
+
+
+\subsection{Metric Normalization}
+
+Metrics differ in physical units and ranges. To compare them on a common scale, each metric \( M_i(j) \) is normalized to a dimensionless score \( s_i(j) \in [0,1] \). For criteria where higher values are preferred:
+\begin{equation}
+s_i(j) 
+= \frac{M_i(j) - m_i^{\min}}{m_i^{\max} - m_i^{\min}}.
+\label{eq:normalize_high}
+\end{equation}
+
+For criteria where lower values are preferred:
+\begin{equation}
+s_i(j) 
+= \frac{m_i^{\max} - M_i(j)}{m_i^{\max} - m_i^{\min}}.
+\label{eq:normalize_low}
+\end{equation}
+
+Scores are clipped to the interval \([0,1]\):
+\[
+s_i(j) = \min\{1,\max\{0,s_i(j)\}\}.
+\]
+
+\subsection{Utility Computation from Known Metrics}
+
+Not all metrics are available for all tiers. Let \( K_j \) denote the subset of metrics known for tier \( j \). The \textit{base utility} is computed as a weighted average over known metrics:
+\begin{equation}
+U_{\text{base}}(j)
+= \frac{\sum_{i \in K_j} w_i \, s_i(j)}
+       {\sum_{i \in K_j} w_i}.
+\label{eq:utility_base}
+\end{equation}
+
+\subsection{Robustness to Missing Data}
+
+To avoid overestimating tiers with sparse information, we penalize tiers according to the fraction of known metric weight:
+\begin{equation}
+\phi(j) = \frac{W_{\text{known}}(j)}{W_{\text{total}}},
+\end{equation}
+where
+\[
+W_{\text{known}}(j) = \sum_{i \in K_j} w_i, \qquad
+W_{\text{total}} = \sum_{i \in I} w_i.
+\]
+
+The \textit{effective utility} used for decision making is:
+\begin{equation}
+U_{\text{eff}}(j)
+= U_{\text{base}}(j)
+  - \lambda \left( 1 - \phi(j) \right),
+\label{eq:utility_eff}
+\end{equation}
+where \( \lambda \in [0,1] \) is a configurable penalty parameter reflecting risk tolerance.
+
+\subsection{Feasibility Constraints}
+
+Mission requirements impose hard feasibility conditions. Tier \( j \) is infeasible if any of the following hold:
+\begin{align}
+M_{\text{latency}}(j) &> D_{\text{req}}, \\
+M_{\text{success}}(j) &< R_{\text{req}}, \\
+M_{\text{quality}}(j) &< Q_{\text{req}}, \\
+M_{\text{cost}}(j)     &> C_{\text{req}}, \\
+R_{\text{ok}}(j) &= 0.
+\end{align}
+In this case:
+\[
+U_{\text{eff}}(j) = -\infty.
+\]
+
+% If not already defined elsewhere
+
+\subsection{Optimization Problem}
+
+The compute-location selection is formulated as a single-step maximization over the feasible tiers. Each tier \( j \) receives an effective utility value \( U_{\text{eff}}(j) \), which incorporates normalized performance metrics, missing-data penalties, and feasibility constraints. The optimal compute tier is selected as
+\begin{equation}
+j^\star = \argmax_{j} \, U_{\text{eff}}(j).
+\label{eq:argmax_choice}
+\end{equation}
+
+This scalarized multi objective formulation is computationally lightweight, interpretable, and directly extensible as additional metrics or constraints become relevant. It supports mission scenarios with incomplete metric observations and heterogeneous compute resources, while preserving mathematical transparency and operational practicality.
+
+\section{Experimentation}
+\label{sec:experiment}
+We validate the optimization framework with a notional intrusion detection system (IDS) workload that must decide where to execute anomaly analytics along the spacecraft command and data handling stack. The candidate tiers correspond to the flight computer (FC), an orbital data center (ODC) colocated with the spacecraft, a ground station edge (GSE) cluster, and a terrestrial data center (TDC). For each tier we collect or synthesize representative performance metrics covering latency, success probability, quality, energy, cost, link availability, operations burden, and data-reduction ratio. Task-level requirements for the IDS scenario enforce a \SI{250}{\milli\second} p99 latency deadline, minimum success probability of 0.92, minimum quality of 0.9, and maximum marginal cost of $3 per processed event.
+
+The experiment proceeds by (i) instantiating \texttt{CriterionConfig} objects for each scored metric, (ii) populating \texttt{TierMetrics} with IDS-specific measurements, (iii) applying feasibility constraints, and (iv) computing effective utilities via Eq.~\eqref{eq:utility_eff} with \(\lambda=0.2\). Any tier violating regulatory feasibility, latency, quality, or cost bounds is automatically rejected by setting \(U_{\text{eff}}=-\infty\). We additionally generate a bar chart of the resulting utilities to facilitate qualitative assessment of the trade space.
+
+\section{Results}
+\label{sec:results}
+Figure~\ref{fig:tier_scores} summarizes the penalized utility scores returned by the optimization for the IDS workload. Both FC and ODC satisfy all requirements, yielding nearly identical utilities (0.742 vs.\ 0.745). The small edge for ODC arises from its lower energy cost and higher link availability while still meeting the latency deadline. GSE and TDC fail the hard p99-latency constraint (\SI{600}{\milli\second} and \SI{320}{\milli\second}, respectively) and are therefore excluded from consideration with \(U_{\text{eff}}=-\infty\). These results demonstrate how the framework steers the operator toward the orbital data center despite FC being feasible, highlighting the influence of multi-metric weighting and missing-data penalties on the final decision.
+
+\begin{figure}[h!]
+    \centering
+    \includegraphics[width=0.8\linewidth]{tier_scores.png}
+    \caption{Penalized utility scores for the IDS workload across flight computer (FC), orbital data center (ODC), ground station edge (GSE), and terrestrial data center (TDC) tiers.}
+    \label{fig:tier_scores}
+\end{figure}
+
+\bibliography{sample}
+
+\end{document}
